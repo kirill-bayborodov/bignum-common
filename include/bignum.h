@@ -1,8 +1,8 @@
 /**
- * @file    bignum_t_0.0.1.h
+ * @file    bignum.h
  * @author  git@bayborodov.com
- * @version 0.0.1
- * @date    01.10.2025
+ * @version 1.0.2
+ * @date    03.10.2025
  *
  * @brief   Определение базовой структуры для арифметики с большими числами.
  *
@@ -14,16 +14,16 @@
  *
  * @history
  *   - rev. 1 (01.08.2025): Первоначальное создание.
- *   - rev. 2 (01.10.2025): Дополнение для github
+ *   - rev. 2 (03.10.2025): Дополнение для github
  */
-#ifndef BIGNUM_T_H
-#define BIGNUM_T_H
+#ifndef BIGNUM_H
+#define BIGNUM_H
 
 #include <stdint.h>
 #include <stddef.h>
 
-#define BIGNUM_CAPACITY 32 // 32 * 64 =  2048 бит
-#define BIGNUM_WORD_SIZE 64
+#define BIGNUM_CAPACITY 32 // 32 * (8*8) =  2048 бит
+#define BIGNUM_WORD_SIZE 8 // sizeof(uint64_t) байт
 
 /**
  * @brief Структура для представления большого беззнакового целого числа.
@@ -32,7 +32,7 @@ typedef struct {
     /** Массив 64-битных "слов" для хранения числа. */
     uint64_t words[BIGNUM_CAPACITY];
     /** Количество используемых слов. words[len-1] не может быть 0, кроме числа 0. */
-    int len;
+    size_t len;
 } bignum_t;
 
 typedef enum {
@@ -42,4 +42,4 @@ typedef enum {
 } bignum_status_t;
 
 
-#endif // BIGNUM_T_H
+#endif // BIGNUM_H
