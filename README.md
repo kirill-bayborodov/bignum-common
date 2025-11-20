@@ -1,6 +1,8 @@
 # bignum-common
 
-**Version: 1.0.2**
+[![C/ASM CI](https://github.com/kirill-bayborodov/bignum-common/actions/workflows/ci.yml/badge.svg)](https://github.com/kirill-bayborodov/bignum-common/actions/workflows/ci.yml)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/kirill-bayborodov/bignum-common?label=release)](https://github.com/kirill-bayborodov/bignum-common/releases/latest)
+
 
 `bignum-common` is a foundational module for the `bignum-lib` project. It provides the core data structures and type definitions used by all other bignum modules.
 
