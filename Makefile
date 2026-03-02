@@ -50,7 +50,7 @@ $(TARGET_LIB): | $(DIST_DIR)
 	$(RANLIB) $@
 
 test: build
-	@if not exist $(BUILD_DIR)) mkdir $(BUILD_DIR)
+	@if [ ! -d "$(BUILD_DIR)" ]; then mkdir -p "$(BUILD_DIR)"; fi
 	@echo "Compiling and running tests..."
 	$(CC) $(CFLAGS) $(TESTS_DIR)/test_bignum_t.c -o $(BUILD_DIR)/test_runner
 	./$(BUILD_DIR)/test_runner
@@ -58,19 +58,22 @@ test: build
 
 install: build
 	@echo "Installing headers to $(DIST_DIR)/..."
-	@if not exist $(DIST_DIR)/$(INCLUDE_DIR) mkdir $(DIST_DIR)/$(INCLUDE_DIR)
+	@if [ ! -d "$(DIST_DIR)/$(INCLUDE_DIR)" ]; then mkdir -p "$(DIST_DIR)/$(INCLUDE_DIR)"; fi
 	cp $(INCLUDE_DIR)/*.h $(DIST_DIR)/$(INCLUDE_DIR)/
 
+#clean:
+#	@echo "Cleaning up..."
+#	@if exist $(BUILD_DIR) rmdir /s /q $(BUILD_DIR)
+#	@if exist $(DIST_DIR) rmdir /s /q $(DIST_DIR)
 clean:
 	@echo "Cleaning up..."
-#rm -rf $(BUILD_DIR) $(DIST_DIR)
-	@if exist $(BUILD_DIR) rmdir /s /q $(BUILD_DIR)
-	@if exist $(DIST_DIR) rmdir /s /q $(DIST_DIR)
+	@if [ -d "$(BUILD_DIR)" ]; then rm -rf "$(BUILD_DIR)"; fi
+	@if [ -d "$(DIST_DIR)" ]; then rm -rf "$(DIST_DIR)"; fi
 
 
 # --- Directory Creation ---
 $(DIST_DIR):
-	@if not exist $(DIST_DIR) mkdir $(DIST_DIR)
+	@@if [ ! -d "$(DIST_DIR)" ]; then mkdir -p "$(DIST_DIR)"; fi
 
 help:
 	@echo "Available targets:"
