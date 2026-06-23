@@ -27,6 +27,7 @@
 ;
 ; @history
 ;   - rev. 0 (19.06.2026): Первоначальная реализация на ассемблере.
+;   - rev. 1 (23.06.2026): Исправлены ошибки в bignum_normalize с обнулением хвоста и добавлена защита от мусорного len
 ; -----------------------------------------------------------------------------
 
 section .text
@@ -210,6 +211,12 @@ bignum_normalize:
 
     mov     r8, rdi
     mov     rcx, [r8 + BIGNUM_OFFSET_LEN]
+    
+    ; --- ИСПРАВЛЕНИЕ 2: Защита от мусорного len ---
+    cmp     rcx, BUF_QWORDS
+    jbe     .check_zero
+    mov     rcx, BUF_QWORDS       ; Ограничиваем rcx до BIGNUM_CAPACITY
+.check_zero:
     test    rcx, rcx
     jz      .clear_all
 
@@ -227,8 +234,23 @@ bignum_normalize:
 
 .store_len:
     mov     [r8 + BIGNUM_OFFSET_LEN], rcx
-    test    rcx, rcx
-    jnz     .ret
+    
+    ; --- ИСПРАВЛЕНИЕ 1: Явное обнуление хвоста inline ---
+    ; Нам нужно обнулить (BUF_QWORDS - rcx) слов, начиная с адреса (r8 + rcx*8)
+    mov     rdi, r8
+    lea     rdi, [rdi + BIGNUM_OFFSET_WORDS + rcx*8]
+    mov     rax, BUF_QWORDS
+    sub     rax, rcx
+    
+    ; Если rax == 0 (число занимает всю емкость), обнулять нечего
+    jz      .ret
+    
+    mov     rcx, rax
+    xor     eax, eax
+    cld
+    rep     stosq
+
+    jmp     .ret
 
 .clear_all:
     lea     rdi, [r8 + BIGNUM_OFFSET_WORDS]

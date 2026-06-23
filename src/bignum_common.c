@@ -8,7 +8,10 @@
  *
  * @details
  *   Парсинг строк (hex/dec) намеренно вынесен в модуль `bignum_helpers`
- *   
+ *  
+ * @history
+ *   - rev. 0 (19.06.2026): Первоначальная реализация.
+ *   - rev. 1 (23.06.2026): В bignum_normalize добавлена защита от мусорного len 
  */
 
 #include "bignum_common.h"
@@ -87,6 +90,11 @@ void bignum_normalize(bignum_t *x)
 {
     if (x == NULL) {
         return;
+    }
+
+    /* Защита от мусорного значения len, превышающего вместимость */
+    if (x->len > BIGNUM_CAPACITY) {
+        x->len = BIGNUM_CAPACITY;
     }
 
     if (x->len == 0U) {
