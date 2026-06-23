@@ -54,11 +54,11 @@ dkms.conf
 # debug information files
 *.dwo
 
-# IDE workspace files
-*.cbp
-*.workspace
-*.workspace.layout
-
-# Build directory structure
+# Build artifacts
+bin/
 build/
-dist/
+context/
+
+# Performance reports
+benchmarks/reports
+doc/report_bench_*.txt
