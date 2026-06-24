@@ -1,8 +1,8 @@
 ; -----------------------------------------------------------------------------
 ; @file    bignum_common.asm
 ; @author  git@bayborodov.com
-; @version 1.0.0
-; @date    19.06.2026
+; @version 1.0.6
+; @date    24.06.2026
 ;
 ; @brief   Реализация функций ядра больших целых чисел (bignum) на YASM x86_64.
 ;
@@ -28,6 +28,12 @@
 ; @history
 ;   - rev. 0 (19.06.2026): Первоначальная реализация на ассемблере.
 ;   - rev. 1 (23.06.2026): Исправлены ошибки в bignum_normalize с обнулением хвоста и добавлена защита от мусорного len
+;   - rev. 2 (24.06.2026): Оптимизация bignum_init_from_array: нормализовать данные «на лету» (до копирования) и 
+;                          сделать всё за один проход без вызовов сторонних функций.
+;   - rev. 3 (24.06.2026): Оптимизация bignum_normalize: GPO/PGO-оптимизированная версия (Hot Path выстроен линейно)
+;   - rev. 4 (24.06.2026): Оптимизация bignum_normalize: Compact / Conditional-Move оптимизированная версия (применена Branchless-логика для сокращения ветвлений)
+;   - rev. 5 (24.06.2026): Оптимизация bignum_init_from_array: Compact / Branchless оптимизированная версия (уплотнение кода и сокращение ветвлений)
+;   - rev. 6 (24.06.2026): Оптимизация bignum_init, bignum_init_u64, bignum_is_zero, bignum_clear_tail: Compact / Branchless оптимизированная версия (уплотнение кода и сокращение ветвлений)
 ; -----------------------------------------------------------------------------
 
 section .text
@@ -57,19 +63,15 @@ BUF_SIZE                equ 264                  ; 256 + 8
 ; @brief  Обнуляет bignum_t (len = 0, words = 0).
 ; void bignum_init(bignum_t *x)
 ; rdi = x
-; void bignum_init(bignum_t *x)
-; rdi = x
 bignum_init:
     test    rdi, rdi
     jz      .ret
-
-    mov     r8, rdi
-    lea     rdi, [r8 + BIGNUM_OFFSET_WORDS]
+    
+    ; Оптимизация (Compact): структура занимает 256 байт (words) + 8 байт (len) = 264 байта.
+    ; Это ровно 33 QWORD. Обнуляем всю память за одну команду без отдельной записи в len.
+    mov     ecx, BUF_QWORDS + 1
     xor     eax, eax
-    mov     ecx, BUF_QWORDS
-    cld
     rep     stosq
-    mov     qword [r8 + BIGNUM_OFFSET_LEN], 0
 .ret:
     ret
 
@@ -79,119 +81,109 @@ bignum_init:
 ; void bignum_init_u64(bignum_t *b, uint64_t val)
 ; rdi = b, rsi = val
 bignum_init_u64:
-	test    rdi, rdi
-	jz      .u64_ret
+    test    rdi, rdi
+    jz      .ret
 
-	mov     r8, rdi
-	xor     rax, rax
-	mov rcx, BUF_QWORDS
-	cld
-	rep     stosq
-	mov     rdi, r8
-    mov     qword [rdi + BIGNUM_OFFSET_LEN], 0 
+    mov     r8, rdi                         ; Сохраняем указатель (rep stosq меняет rdi)
+    
+    ; 1. Обнуляем всю структуру (33 QWORD) разом
+    mov     ecx, BUF_QWORDS + 1
+    xor     eax, eax
+    rep     stosq
 
-	mov     qword [rdi + BIGNUM_OFFSET_WORDS], rsi
-	test    rsi, rsi
-	jz      .u64_ret       ; len already zero
-	mov     qword [rdi + BIGNUM_OFFSET_LEN], 1
-	.u64_ret:
-	ret
+    ; 2. Записываем значение
+    mov     [r8 + BIGNUM_OFFSET_WORDS], rsi 
+
+    ; 3. Branchless вычисление len: если rsi != 0, то len = 1, иначе 0
+    test    rsi, rsi
+    setnz   al                              ; al = 1, если rsi != 0
+    mov     [r8 + BIGNUM_OFFSET_LEN], rax   ; rax уже содержит 0 или 1 (старшие биты обнулены xor eax, eax выше)
+.ret:
+    ret
 
 ; @brief Инициализирует bignum_t из массива uint64_t (младшее слово — first).
-; @return BIGNUM_SUCCESS, BIGNUM_ERROR_NULL_ARG, BIGNUM_ERROR_OVERFLOW.  
-; int bignum_init_from_array(bignum_t *dst, const uint64_t *src, size_t src_len)
-; rdi = dst, rsi = src, rdx = src_len
+; @return BIGNUM_SUCCESS, BIGNUM_ERROR_NULL_ARG, BIGNUM_ERROR_OVERFLOW.
 ; int bignum_init_from_array(bignum_t *dst, const uint64_t *src, size_t src_len)
 ; rdi = dst, rsi = src, rdx = src_len
 bignum_init_from_array:
-    test    rdi, rdi
-    jz      .err_null
-    test    rsi, rsi
-    jz      .err_null
-
-    cmp     rdx, BUF_QWORDS
-    ja      .err_overflow
-
-    mov     r8, rdi
-
-    test    rdx, rdx
-    jz      .clear_all
-
-    lea     rdi, [r8 + BIGNUM_OFFSET_WORDS]
-    mov     rcx, rdx
-    cld
-    rep     movsq
-
-    mov     [r8 + BIGNUM_OFFSET_LEN], rdx
-
-    cmp     rdx, BUF_QWORDS
-    je      .normalize
-
-    mov     rdi, r8
-    mov     rsi, rdx
-    call    bignum_clear_tail
-
-.normalize:
-    mov     rdi, r8
-    call    bignum_normalize
-    mov     eax, BIGNUM_SUCCESS
-    ret
-
-.clear_all:
-    lea     rdi, [r8 + BIGNUM_OFFSET_WORDS]
-    xor     eax, eax
-    mov     ecx, BUF_QWORDS
-    cld
-    rep     stosq
-    mov     qword [r8 + BIGNUM_OFFSET_LEN], 0
-    mov     eax, BIGNUM_SUCCESS
-    ret
-
-
-.err_null:
+    ; 1. Компактные проверки на ошибки (ранний выход обязателен для защиты памяти)
     mov     eax, BIGNUM_ERROR_NULL_ARG
+    test    rdi, rdi
+    jz      .ret
+    test    rsi, rsi
+    jz      .ret
+
+    mov     eax, BIGNUM_ERROR_OVERFLOW
+    cmp     rdx, BUF_QWORDS
+    ja      .ret
+
+    ; 2. Нормализация "на лету" (поиск реальной длины)
+    mov     rcx, rdx
+    test    rcx, rcx
+    jz      .do_copy        ; Если src_len == 0, сразу идем обнулять dst
+
+.scan_loop:
+    cmp     qword [rsi + rcx*8 - 8], 0
+    jnz     .do_copy        ; Нашли первое ненулевое слово
+    dec     rcx
+    jnz     .scan_loop      ; Если дошли до 0, массив состоял только из нулей
+
+.do_copy:
+    ; 3. Записываем длину ДО копирования (rdi еще указывает на начало структуры)
+    mov     [rdi + BIGNUM_OFFSET_LEN], rcx
+
+    ; 4. Branchless копирование значащих слов
+    mov     r8, rcx         ; Сохраняем длину для вычисления остатка
+    cld                     ; Очищаем флаг направления (System V ABI)
+    rep     movsq           ; Если rcx=0, аппаратно пропускается. rdi сдвигается на rcx*8
+
+    ; 5. Branchless обнуление хвоста
+    mov     rcx, BUF_QWORDS
+    sub     rcx, r8         ; rcx = 32 - количество скопированных слов
+    xor     eax, eax        ; rax = 0 (для stosq) И eax = BIGNUM_SUCCESS (0) для return
+    rep     stosq           ; Если rcx=0, аппаратно пропускается (ветвление не нужно!)
+
+.ret:
     ret
 
-.err_overflow:
-    mov     eax, BIGNUM_ERROR_OVERFLOW
-    ret
+
 
 
 ; @brief Возвращает 1, если x == NULL или x->len == 0, иначе 0. 
 ; int bignum_is_zero(const bignum_t *x)
 ; rdi = x
 bignum_is_zero:
+    mov     eax, 1                          ; Предполагаем x == NULL (возврат 1)
     test    rdi, rdi
-    jz      .is_zero_true
-    mov     rcx, qword [rdi + BIGNUM_OFFSET_LEN]
-    test    rcx, rcx
-    jz      .is_zero_true
-    xor     eax, eax
-    ret
-.is_zero_true:
-    mov     eax, 1
+    jz      .ret                            ; Защита от segfault (единственное ветвление)
+    
+    ; Branchless проверка: eax = (len == 0) ? 1 : 0
+    cmp     qword [rdi + BIGNUM_OFFSET_LEN], 0
+    sete    al                              ; Меняет только младший байт (al). 
+                                            ; Так как eax был 1, старшие биты уже нули.
+.ret:
     ret
 
 ; @brief Обнуляет «хвост» массива words от индекса start (включительно)
 ;        до конца статического буфера BIGNUM_CAPACITY.
 ; void bignum_clear_tail(bignum_t *x, size_t start)
 ; rdi = x, rsi = start
-
-
 bignum_clear_tail:
     test    rdi, rdi
     jz      .ret
 
-    cmp     rsi, BUF_QWORDS
-    jae     .ret
-
     mov     rcx, BUF_QWORDS
-    sub     rcx, rsi
-    lea     rdi, [rdi + rsi*8]
-    xor     eax, eax
-    cld
-    rep     stosq
+    
+    ; Branchless ограничение (Clamp): если start > 32, делаем start = 32
+    cmp     rsi, rcx
+    cmova   rsi, rcx                
 
+    ; Вычисляем размер хвоста
+    sub     rcx, rsi                        ; rcx = 32 - start (количество слов для обнуления)
+    
+    lea     rdi, [rdi + rsi*8]              ; Сдвигаем указатель на начало хвоста
+    xor     eax, eax
+    rep     stosq                           ; Если rcx == 0, аппаратно пропускается без ветвлений
 .ret:
     ret
 
@@ -201,66 +193,49 @@ bignum_clear_tail:
 ;        чтобы гарантировать отсутствие неинициализированных данных.
 ; void bignum_normalize(bignum_t *x); 
 ; rdi = x
-
-; @brief Удаляет старшие нулевые слова и обнуляет хвост.
-; void bignum_normalize(bignum_t *x)
-; rdi = x
 bignum_normalize:
     test    rdi, rdi
     jz      .ret
 
-    mov     r8, rdi
-    mov     rcx, [r8 + BIGNUM_OFFSET_LEN]
-    
-    ; --- ИСПРАВЛЕНИЕ 2: Защита от мусорного len ---
-    cmp     rcx, BUF_QWORDS
-    jbe     .check_zero
-    mov     rcx, BUF_QWORDS       ; Ограничиваем rcx до BIGNUM_CAPACITY
-.check_zero:
+    ; 1. Загружаем текущую длину и ограничиваем её до BIGNUM_CAPACITY (32) без ветвлений
+    mov     rcx, [rdi + BIGNUM_OFFSET_LEN]
+    mov     r8, BUF_QWORDS
+    cmp     rcx, r8
+    cmova   rcx, r8       ; Если rcx > 32, то rcx = 32
+
+    ; Если длина изначально 0, сразу переходим к обновлению (и обнулению всего буфера)
     test    rcx, rcx
-    jz      .clear_all
+    jz      .update_len
 
-.loop:
-    ; Проверяем текущее старшее слово
-    mov     rax, [r8 + BIGNUM_OFFSET_WORDS + rcx*8 - 8]
-    test    rax, rax
-    jnz     .store_len    ; Если не ноль, мы нашли новый len, сохраняем
-
+.scan_loop:
+    ; 2. Ищем первое ненулевое слово с конца (без загрузки в промежуточный регистр)
+    cmp     qword [rdi + rcx*8 - 8], 0
+    jnz     .update_len   ; Нашли! rcx содержит правильную новую длину
     dec     rcx
-    jnz     .loop         ; Если rcx еще не 0, продолжаем цикл
+    jnz     .scan_loop    ; Продолжаем поиск, пока rcx не станет 0
 
-    ; Если дошли сюда, значит все слова были нулями (rcx == 0)
-    jmp     .clear_all
+    ; Если цикл завершился (rcx = 0), значит все слова были нулями.
+    ; Естественным образом "проваливаемся" в .update_len с rcx = 0.
 
-.store_len:
-    mov     [r8 + BIGNUM_OFFSET_LEN], rcx
-    
-    ; --- ИСПРАВЛЕНИЕ 1: Явное обнуление хвоста inline ---
-    ; Нам нужно обнулить (BUF_QWORDS - rcx) слов, начиная с адреса (r8 + rcx*8)
-    mov     rdi, r8
-    lea     rdi, [rdi + BIGNUM_OFFSET_WORDS + rcx*8]
-    mov     rax, BUF_QWORDS
-    sub     rax, rcx
-    
-    ; Если rax == 0 (число занимает всю емкость), обнулять нечего
-    jz      .ret
-    
-    mov     rcx, rax
-    xor     eax, eax
-    cld
-    rep     stosq
+.update_len:
+    ; 3. Сохраняем новую длину (от 0 до 32)
+    mov     [rdi + BIGNUM_OFFSET_LEN], rcx
 
-    jmp     .ret
+    ; 4. Вычисляем размер "хвоста" для обнуления: (32 - rcx)
+    mov     r8, BUF_QWORDS
+    sub     r8, rcx
+    jz      .ret          ; Если новая длина 32, обнулять нечего (хвоста нет)
 
-.clear_all:
-    lea     rdi, [r8 + BIGNUM_OFFSET_WORDS]
-    xor     eax, eax
-    mov     ecx, BUF_QWORDS
-    cld
-    rep     stosq
-    mov     qword [r8 + BIGNUM_OFFSET_LEN], 0
+    ; 5. Обнуляем хвост (или весь буфер, если rcx был равен 0)
+    lea     rdi, [rdi + rcx*8]  ; Указатель на начало хвоста
+    mov     rcx, r8             ; Количество слов для обнуления
+    xor     eax, eax            ; Заполняем нулями
+    rep     stosq               ; Обнуляем rcx слов
+
 .ret:
     ret
+
+
 
 
 
