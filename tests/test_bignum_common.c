@@ -176,6 +176,92 @@ static void test_init_from_array(void)
     OK("init_from_array — граница CAPACITY");
 }
 
+
+static void test_init_from_array_null_src(void)
+
+{
+
+    bignum_t a, b;
+
+
+    /* Подготовим «грязное» состояние, чтобы убедиться, что при NULL_ARG
+
+     * dst не модифицируется (asm выходит до rep stosq). */
+
+    memset(&a, 0xCD, sizeof(a));
+
+    memset(&b, 0xCD, sizeof(b));
+
+    a.len = 0xCDCDCDCDCDCDCDCDULL;
+
+    b.len = 0xCDCDCDCDCDCDCDCDULL;
+
+
+    int rc_a = bignum_init_from_array(&a, NULL, 0);
+
+    int rc_b = bignum_init_from_array(&b, NULL, 0);
+
+
+    /* 1. Обе функции возвращают NULL_ARG (контракт: NULL важнее нулевой длины) */
+
+    ASSERT(rc_a == BIGNUM_ERROR_NULL_ARG,
+
+           "init_from_array(&a, NULL, 0) → NULL_ARG");
+
+    ASSERT(rc_b == BIGNUM_ERROR_NULL_ARG,
+
+           "init_from_array(&b, NULL, 0) → NULL_ARG");
+
+    ASSERT(rc_a == rc_b, "init_from_array: коды возврата согласованы");
+
+
+    /* 2. dst не должен быть затронут (ранний выход в asm-реализации) */
+
+    ASSERT(a.len == 0xCDCDCDCDCDCDCDCDULL,
+
+           "init_from_array: dst->len не модифицирован при NULL_ARG");
+
+    ASSERT(b.len == 0xCDCDCDCDCDCDCDCDULL,
+
+           "init_from_array: dst->len не модифицирован при NULL_ARG");
+
+    /* words[0] должен сохранить «грязный» байт 0xCDCDCDCDCDCDCDCD */
+
+    ASSERT(a.words[0] == 0xCDCDCDCDCDCDCDCDULL,
+
+           "init_from_array: dst->words не модифицированы при NULL_ARG");
+
+    ASSERT(b.words[0] == 0xCDCDCDCDCDCDCDCDULL,
+
+           "init_from_array: dst->words не модифицированы при NULL_ARG");
+
+
+    OK("init_from_array — (NULL, 0) для двух переменных: NULL_ARG, dst не тронут");
+
+
+    /* 3. Контроль: после «легальной» инициализации структуры становятся нулями
+
+     *    и is_zero возвращает 1. Это показывает, что NULL_ARG выше —
+
+     *    именно защита, а не молчаливая инициализация нулями. */
+
+    uint64_t zeros[1] = { 0 };
+
+    int rc_ok = bignum_init_from_array(&a, zeros, 0);
+
+    ASSERT(rc_ok == BIGNUM_SUCCESS,
+
+           "init_from_array(&a, &zeros[0], 0) → SUCCESS (легальный путь)");
+
+    ASSERT(bignum_is_zero(&a) == 1,
+
+           "init_from_array: после легального (non-NULL, len=0) → is_zero");
+
+
+    OK("init_from_array — (non-NULL, 0) остаётся SUCCESS, а (NULL, 0) → NULL_ARG");
+
+}
+
 /* ------------------------------------------------------------------ */
 /*  bignum_is_zero                                                    */
 /* ------------------------------------------------------------------ */
@@ -396,6 +482,7 @@ int main(void)
     test_init();
     test_init_u64();
     test_init_from_array();
+    test_init_from_array_null_src();
     test_is_zero();
     test_clear_tail();
     test_normalize();
