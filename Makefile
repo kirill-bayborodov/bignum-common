@@ -240,6 +240,9 @@ bench: clean $(BENCH_BINS) | $(REPORTS_DIR)
 
 install: clean $(OBJ) $(OBJECTS) | $(DIST_INCLUDE_DIR) $(DIST_LIB_DIR)
 	@printf "%s" "Installing product to $(DIST_DIR)/ (CONFIG=$(CONFIG))..."
+	@if [ -f "$(INCLUDE_DIR)/$(FAMILY_NAME).h" ]; then \
+		cp "$(INCLUDE_DIR)/$(FAMILY_NAME).h" "$(DIST_INCLUDE_DIR)/"; \
+	fi	
 	@cp $(HEADER) $(foreach dir,$(SUBMODULES_INCLUDE_DIR),$(wildcard $(dir)/*.h)) $(DIST_INCLUDE_DIR)/
 	@cp $(OBJ) $(OBJECTS) $(DIST_LIB_DIR)/
 	@echo "Ok"
@@ -266,6 +269,10 @@ dist: clean
 	@echo "#ifndef $(UPPER_LIB_NAME)_SINGLE_H" > $(SINGLE_HEADER)
 	@echo "#define $(UPPER_LIB_NAME)_SINGLE_H" >> $(SINGLE_HEADER)
 	@echo "" >> $(SINGLE_HEADER)
+	@if [ -f "$(INCLUDE_DIR)/$(FAMILY_NAME).h" ]; then \
+		echo "/* --- Included from /include/$(FAMILY_NAME).h --- */" >> $(SINGLE_HEADER); \
+		sed -e '/BIGNUM_H/d' "$(INCLUDE_DIR)/$(FAMILY_NAME).h" >> $(SINGLE_HEADER); \
+	fi	
 	@if [ -f $(COMMON_DIR)/$(INCLUDE_DIR)/$(FAMILY_NAME).h ]; then \
 	echo "/* --- Included from libs/$(COMMON_NAME)/include/$(FAMILY_NAME).h --- */" >> $(SINGLE_HEADER); \
 	sed -e '/BIGNUM_H/d' -e '/BIGNUM_COMMON_H/d' -e '/#include "$(FAMILY_NAME).h"/d' $(foreach dir,$(SUBMODULES_INCLUDE_DIR),$(wildcard $(dir)/*.h)) >> $(SINGLE_HEADER); \
@@ -357,6 +364,13 @@ help:
 	@echo "Logs:"
 	@echo "  Sanitizer logs: \$$(BIN_DIR)/sanitize_<test>.log"
 	@echo "  Helgrind logs:  \$$(BIN_DIR)/helgrind_<test>_mt.log"
+	@echo ""
+	@echo "Optimization Cycle Example:"
+	@echo "  1. make bench REPORT_NAME=baseline"
+	@echo "  2. ...edit code..."
+	@echo "  3. make test"
+	@echo "  4. make bench REPORT_NAME=opt_v1"
+	@echo "  5. diff -u benchmarks/reports/baseline_st.txt benchmarks/reports/opt_v1_st.txt"	
 
 show-calc:
 	@echo "REPOSITORY_NAME = $(REPOSITORY_NAME)"
