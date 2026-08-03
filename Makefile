@@ -305,7 +305,7 @@ dist: clean
 	$(MKDIR) $(BUILD_DIR)/tmp_$(d) && \
 	cd $(BUILD_DIR)/tmp_$(d) && \
 	$(AR) x ../../$(LIBS_DIR)/$(d)/dist/lib$(subst -,_,$(d)).a && \
-	$(AR) q ../../$(STATIC_LIB) *.o && \
+	$(AR) r ../../$(STATIC_LIB) *.o && \
 	cd ../..; \
 	)
 	@$(RL) $(STATIC_LIB)
